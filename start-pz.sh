@@ -16,6 +16,50 @@ if [ -f "$PANEL_SETTINGS_FILE" ] && command -v python3 >/dev/null 2>&1; then
         BRANCH="$PANEL_BRANCH"
     fi
 fi
+
+# 管理员账户/密码由面板保存到 panel_settings.json。
+# 游戏账户实际保存在 whitelist 数据库，因此启动前同步账号名和 bcrypt 密码。
+ADMIN_USERNAME="admin"
+ADMIN_PASSWORD="admin"
+PANEL_ADMIN_USERNAME=""
+PANEL_ADMIN_PASSWORD=""
+if [ -f "$PANEL_SETTINGS_FILE" ] && command -v python3 >/dev/null 2>&1; then
+    PANEL_ADMIN_USERNAME="$(python3 -c "import json;print(json.load(open('$PANEL_SETTINGS_FILE')).get('admin_username') or '')" 2>/dev/null || true)"
+    PANEL_ADMIN_PASSWORD="$(python3 -c "import json;print(json.load(open('$PANEL_SETTINGS_FILE')).get('admin_password') or '')" 2>/dev/null || true)"
+fi
+if [ -n "$PANEL_ADMIN_USERNAME" ] && [[ "$PANEL_ADMIN_USERNAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$ ]]; then
+    ADMIN_USERNAME="$PANEL_ADMIN_USERNAME"
+fi
+if [ -n "$PANEL_ADMIN_PASSWORD" ] && [[ "$PANEL_ADMIN_PASSWORD" != *$'\n'* ]] && [[ "$PANEL_ADMIN_PASSWORD" != *$'\r'* ]]; then
+    ADMIN_PASSWORD="$PANEL_ADMIN_PASSWORD"
+fi
+
+ADMIN_DB="$PZ_DATA_DIR/db/servertest.db"
+if [ -f "$ADMIN_DB" ] && { [ -n "$PANEL_ADMIN_USERNAME" ] || [ -n "$PANEL_ADMIN_PASSWORD" ]; }; then
+    ADMIN_DB="$ADMIN_DB" ADMIN_USERNAME="$ADMIN_USERNAME" ADMIN_PASSWORD="$ADMIN_PASSWORD" PANEL_ADMIN_PASSWORD="$PANEL_ADMIN_PASSWORD" python3 - <<'PY'
+import crypt
+import os
+import sqlite3
+
+db_path = os.environ["ADMIN_DB"]
+username = os.environ["ADMIN_USERNAME"]
+password = os.environ["ADMIN_PASSWORD"]
+hashed = crypt.crypt(password, crypt.mksalt(crypt.METHOD_BLOWFISH))
+db = sqlite3.connect(db_path)
+try:
+    row = db.execute("SELECT id, password FROM whitelist WHERE role = 7 ORDER BY id LIMIT 1").fetchone()
+    if row:
+        # 只改账号时保留原密码；只改密码时保留原账号。
+        password_value = hashed if os.environ.get("PANEL_ADMIN_PASSWORD") else row[1]
+        db.execute("UPDATE whitelist SET username = ?, password = ? WHERE id = ?", (username, password_value, row[0]))
+    else:
+        db.execute("INSERT INTO whitelist (world, username, password, role, authType) VALUES ('', ?, ?, 7, 1)", (username, hashed))
+    db.commit()
+finally:
+    db.close()
+PY
+    echo "--- [Game] 管理员账户已同步: $ADMIN_USERNAME ---"
+fi
 BETA_ARGS=""
 
 if [ "$BRANCH" = "public" ] || [ "$BRANCH" = "latest" ]; then
@@ -85,4 +129,4 @@ fi
 # 使用 exec 替换当前 shell 进程
 # 这样 supervisord 的停止信号 (SIGTERM) 能直接传给 java 进程
 # 保证游戏能有机会执行“保存并退出”逻辑
-exec ./start-server.sh -adminpassword admin -cachedir=/home/steam/Zomboid
+exec ./start-server.sh -adminpassword "$ADMIN_PASSWORD" -cachedir=/home/steam/Zomboid
