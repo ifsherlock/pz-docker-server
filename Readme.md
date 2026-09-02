@@ -50,6 +50,7 @@
 * `PZ_UID` / `PZ_GID` 只负责容器内 `steam` 用户和宿主机 bind mount 的属主映射，默认 `1000:1000`。容器每次启动还会修正挂载目录中的属主和读写权限。
 * 面板中的管理员账户/密码是游戏管理员凭据；`PZ_WEB_ACCOUNT` / `PZ_WEB_PASSWORD` 是 Nginx 面板登录凭据，`FILEBROWSER_ADMIN_*` 是 FileBrowser 首次初始化凭据，三者用途不同。
 * 面板 favicon 使用 PZ Wiki 的 [SpiffoGlobe 小浣熊素材](https://pzwiki.net/w/images/b/b5/SpiffoGlobe.png)，经高质量缩放为 64×64 RGBA，随面板二进制内嵌发布，不需要额外挂载。
+* 面板顶部提供两张 Project Zomboid 壁纸切换，图片随面板二进制内嵌，选择保存在浏览器本地。
 
 ## 🚀 2. 快速开始
 
