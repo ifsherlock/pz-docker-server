@@ -1,6 +1,9 @@
 # 🧟 Project Zomboid Docker Server (With Web Management)
 
-这是一个自用的《僵尸毁灭工程》(Project Zomboid)  Docker 服务端方案。
+这是一个可持久化、带 Web 管理面板的《僵尸毁灭工程》(Project Zomboid) Docker 服务端方案。
+
+当前仓库：<https://github.com/ifsherlock/pz-docker-server><br>
+配套面板：<https://github.com/ifsherlock/pz-web-backend>
 
 > ⚠️ 注意：
 > 
@@ -39,6 +42,15 @@
   * 点击“保存并重启”后，玩家密码写入 `servertest.ini`，管理员账户名同步到 Build 42 的服务器数据库，管理员密码通过游戏原生 `-adminpassword` 参数生效。
 * 🧱 持久化：游戏本体、存档、配置、面板数据与容器分离，方便改动以及保存。
 
+### 当前版本与配置行为
+
+* 默认游戏分支是 Steam `public`，当前稳定版为 **42.20.4**（buildid `24909836`）。`public` 是分支名，不是固定版本号；Steam 发布新稳定版后会自动跟随。
+* 面板“服务器配置”中保存的游戏分支会写入 `data/web-backend/panel_settings.json`，启动时优先于 `.env` 的 `PZ_BRANCH`。切换后点击“保存并重启”即可拉取并运行目标分支。
+* 下拉框中的 `42.19`、`legacy41` 也是 Steam 分支。要锁定某个历史构建，必须使用 Steam Depot 的 manifest ID；不能把任意版本号直接填成分支名。
+* `PZ_UID` / `PZ_GID` 只负责容器内 `steam` 用户和宿主机 bind mount 的属主映射，默认 `1000:1000`。容器每次启动还会修正挂载目录中的属主和读写权限。
+* 面板中的管理员账户/密码是游戏管理员凭据；`PZ_WEB_ACCOUNT` / `PZ_WEB_PASSWORD` 是 Nginx 面板登录凭据，`FILEBROWSER_ADMIN_*` 是 FileBrowser 首次初始化凭据，三者用途不同。
+* 面板 favicon 使用官方 Project Zomboid 图标，随面板二进制内嵌发布，不需要额外挂载。
+
 ## 🚀 2. 快速开始
 
 ### 2.1 环境要求：
@@ -50,23 +62,20 @@
 ### 2.2 获取项目
 
 ```bash
-git clone https://github.com/Asteroid77/pz-docker-server.git
+git clone https://github.com/ifsherlock/pz-docker-server.git
 # windows下直接打开目录即可
 cd pz-docker-server
 ```
 
 ### 2.3 配置环境文件
 
-> ⚠️ 注意: 请务必修改 .env 文件中的密码配置 (FILEBROWSERADMIN_PASSWORD, PZ_WEB_PASSWORD 等)，切勿使用默认密码！
+> ⚠️ 注意: 请务必修改 `.env` 文件中的密码配置（`FILEBROWSER_ADMIN_PASSWORD`、`PZ_WEB_PASSWORD` 等），切勿使用默认密码！
 
 打开项目目录下的`.env`文件，可选配置如下：
 
 #### ⚙️ 环境变量配置 (.env)
 
-在使用 `docker-compose up` 启动之前，请复制 `.env.example` 为 `.env` 并根据你的需求修改以下配置。
-
-
-
+请在首次启动前创建或编辑项目根目录的 `.env`（仓库未提供可直接提交的 `.env.example`），并至少修改所有密码和域名相关配置。`.env` 包含凭据，不要提交到 GitHub。
 #### 📦 基础配置 (Basic)
 
 | 变量名                       | 默认值                | 说明                                                         |
@@ -75,19 +84,19 @@ cd pz-docker-server
 | `PORT_GAME_UDP`              | `16261`               | **主游戏端口 (UDP)**。玩家连接服务器时填写的端口。           |
 | `PORT_GAME_HANDSHAKE`        | `16262`               | **握手端口 (UDP)**。用于 Steam 查询和直连。                  |
 | `PORT_GAME_SETTING_EXT`      | `10888`               | **Web 面板端口**，默认为游戏配置，/filebrowser路径为文件管理。 |
-| `FILEBROWSER_ADMIN_USERNAME` | `pzFileAdmin`         | **FileBrowser** 的默认管理员用户名。                         |
-| `FILEBROWSER_ADMIN_PASSWORD` | `Adminadmin123`       | **FileBrowser** 的默认管理员密码。<br>⚠️ **注意**：必须 **>8位** 且包含字母数字，足够复杂，否则服务会启动失败。 |
+| `FILEBROWSER_ADMIN_USERNAME` | （自行设置）         | **FileBrowser** 首次初始化的管理员用户名；已有数据库时修改此项不会自动改现有账号。 |
+| `FILEBROWSER_ADMIN_PASSWORD` | （自行设置）         | **FileBrowser** 首次初始化的管理员密码；建议使用至少 12 位的强密码。 |
 
 #### 🛠️ 构建与网络 (Build & Network)
 
 | 变量名                  | 默认值                             | 说明                                                         |
 | :---------------------- | :--------------------------------- | :----------------------------------------------------------- |
-| `PROXY_URL`             | `http://host.docker.internal:7890` | **HTTP 代理地址**。<br>用于加速 Docker 构建过程中的 SteamCMD 下载。<br>• **Windows/Mac**: `http://host.docker.internal:7890`<br>• **Linux**: 请填写宿主机局域网 IP (如 `192.168.1.5:7890`) |
+| `PROXY_URL`             | 空                             | **HTTP 代理地址**。用于加速 Docker 构建和 SteamCMD 下载；不用代理时留空。Linux 请填写宿主机局域网 IP（如 `http://192.168.1.5:7890`）。 |
 | `USE_CN_MIRROR`         | `true`                             | 是否使用国内镜像源加速 `apt-get` 安装。<br>`true` = 使用阿里云源；`false` = 使用官方源。 |
-| `GITHUB_PROXY_URL`      | `https://ghfast.top/`              | 配置GitHub专用加速前缀                                       |
+| `GITHUB_PROXY_URL`      | 空                              | GitHub 下载加速前缀；网络可直连时留空。 |
 | `DNS_SERVER_1`          | `223.5.5.5`                        | 容器内使用的DNS组1，此为阿里云的DNS，非国内构建无需填写。    |
 | `DNS_SERVER_2`          | `119.29.29.29`                     | 容器内使用的DNS组2，此为腾讯云的DNS，非国内构建无需填写。    |
-| `STEAMCMD_CN_MIRROR_ID` | `10`                               | Steam地区设置：<br />• **上海**: `44` <br />• **北京**: `23` <br />• **成都**: `45` <br />• **广州**: `43` <br />• **天津**：`47`（完美世界机房）<br />• **新加坡**：`10`<br />• **香港**：`11` |
+| `STEAMCMD_CN_MIRROR_ID` | `44`                               | Steam 下载节点 `cellid`；上海 `44`、北京 `23`、成都 `45`、广州 `43`、天津 `47`、新加坡 `10`、香港 `11`。连接异常时可更换或留空。 |
 
 #### 🔒 安全与 HTTPS (SSL/TLS)
 
@@ -115,10 +124,12 @@ cd pz-docker-server
 | :------------------------ | :------------------------------ | :----------------------------------------------------------- |
 | `PZ_BRANCH`               | `public`                        | **Steam 游戏分支**。`public` 当前为 42.20.4 并自动跟随稳定版；也可填写 Steam 官方分支名，如 `42.19`、`legacy41`。 |
 | `PZ_UID` / `PZ_GID`       | `1000` / `1000`                 | 宿主机挂载目录属主 UID/GID；需与 NAS 上目录属主一致。 |
-| `PZ_WEB_ACCOUNT`          | `pz`                            | **Nginx 基本认证用户名**。<br>用于保护 Web 管理面板的入口安全。 |
-| `PZ_WEB_PASSWORD`         | `pzPassword123`                 | **Nginx 基本认证密码**。                                     |
+| `PZ_WEB_ACCOUNT`          | （自行设置）                 | **Nginx Basic Auth 用户名**，用于保护 Web 管理面板入口。 |
+| `PZ_WEB_PASSWORD`         | （自行设置）                 | **Nginx Basic Auth 密码**；修改后重启容器重新生成认证文件。 |
 | `PZ_SETTING_WEB_REPO`     | `Asteroid77/pz-web-backend`     | 面板依赖的仓库，你可以自行fork然后在此基础上修改，使用自己的Web面板。 |
-| `PZ_WEB_BACKEND_FILENAME` | `pz-web-backend-linux-amd64Web` | 面板的文件名，根据这个检测最新的面板二进制文件。             |
+| `PZ_WEB_BACKEND_FILENAME` | `pz-web-backend-linux-amd64` | 面板 Release 二进制文件名；必须与面板仓库发布的资产名一致。 |
+
+`PZ_SETTING_WEB_REPO` 只影响镜像构建时下载的面板 Release；如果要使用本仓库配套的面板 fork，请填 `ifsherlock/pz-web-backend`，并确保该仓库发布了同名二进制资产。
 
 #### 🌐 DDNS-GO（DDNS-GO Settings)
 
@@ -134,9 +145,9 @@ cd pz-docker-server
 ```bash
 #先构建属于你自己的images
 #时间可能会有点长（取决于你的网络环境）
-docker-compose build
+docker compose build
 #启动
-docker-compsoe up -d 
+docker compose up -d
 ```
 
 如果你使用的是`Docker-Desktop`，那可以直接点击查看你刚刚启动的容器，点进去即可查看日志，大致如下：
@@ -208,29 +219,35 @@ docker-compsoe up -d
   * 其它
     * 禁止公网访问：禁止（建议）
 
-* 游戏端口: 没有提供修改项，反正这个放在Docker内你端口是随便映射的，默认就是`16261`跟`16262`，追求开箱即用。
+* 游戏端口：默认映射 UDP `16261`（游戏端口）和 `16262`（握手端口），可在 `.env` 修改宿主机端口。
 
 * 游戏分支: 可在 Web 面板“服务器配置”中选择。`public` 会自动跟随当前稳定版（目前 42.20.4）；也可填写 Steam 官方分支名。不要把任意版本号直接当作分支名。
 
 * RCON: RCON（Remote Console，远程控制台）允许外部管理工具通过 TCP 连接执行服务器命令。只有需要远程控制时才设置 `RCONPort` 和 `RCONPassword`，否则保持密码为空。
 
-* 服务端配置分组: 面板将游戏原生 146 个配置项细分为服务端基础、网络与连接、聊天与语音、游戏规则、存档与备份、地图、玩家与 PVP、世界环境、车辆、客户端限制、反作弊、Discord、模组与工坊和服务端安全，并额外提供内存、版本和管理员凭据等面板虚拟项；密码相关项固定在最后。
+* 服务端配置分组：面板将游戏原生配置项细分为服务端基础、网络与连接、聊天与语音、游戏规则、存档与备份、地图、玩家与 PVP、世界环境、车辆、客户端限制、反作弊、Discord、模组与工坊和服务端安全，并额外提供内存、版本和管理员凭据等面板虚拟项；密码相关项固定在最后。
+
+* 公网访问：容器只负责监听宿主机映射端口。域名解析、路由器端口转发和上游反向代理必须把 HTTP/HTTPS 转发到 `PORT_GAME_SETTING_EXT`（默认 `10888`）；公网 IP 能打开其他管理页不代表已转发到本面板。
 
 ## 🛠️ 3. 常见问题 (FAQ)
 
 ### Q1: 服务器一直在重启或者无法启动？
 
-请检查日志`docker-compose logs -f`或直接在对应docker网页端管理工具中查看.
+请检查日志 `docker compose logs -f pz-server` 或直接在对应 Docker 管理工具中查看。
 
-一般来说可能会是网络问题，或者`.env`文件设置问题，具体问题具体分析，源码都在项目里面，与LLM对话即可，推荐`Gemini 3 Pro`
+常见原因是 Steam 下载网络、分支名错误、证书配置或挂载目录权限。先核对 `.env`，再查看启动日志中的 SteamCMD 错误。
 
 ### Q2: 如何手动更新游戏？
 
-直接重启容器即可：`docker-compose restart` 。
+直接重启容器即可：`docker compose restart pz-server`。
 
-启动脚本会自动校验并更新游戏版本。
+启动脚本会执行 `app_update 380870 -beta <分支> validate`。面板已保存的分支优先于 `.env` 的 `PZ_BRANCH`。
 
-### Q3: 如何添加模组 (Mods)？
+### Q3: 如何切换到指定版本？
+
+在面板“服务器配置 → 游戏版本分支”选择 `public`、`42.19`、`legacy41` 或填写自定义 Steam 分支名，然后点击“保存并重启”。`public` 当前是 42.20.4，并会自动跟随后续稳定版；自定义输入必须是 Steam 已存在的分支名。若需要固定历史构建，请使用 Steam Depot manifest ID 对应的下载方案，不能只输入一个版本号。
+
+### Q4: 如何添加模组 (Mods)？
 
 进入 Web 面板  -> Server 设置 -> 模组管理 -> 使用 Web 面板自带的 模组管理 功能自动解析。
 
@@ -240,9 +257,7 @@ docker-compsoe up -d
 
 保存并点击“更新并重启”。
 
-算了，都是千年狐狸谈什么聊斋，真不懂去问LLM。
-
-### Q4: 为什么修改了 .env 里的密码重启没生效？
+### Q5: 为什么修改了 `.env` 里的密码重启没生效？
 
 `FileBrowser` 和 `Nginx` 的密码在首次初始化后会写入数据库或文件。
 
@@ -252,13 +267,17 @@ docker-compsoe up -d
 
 `Web 设置面板`: 删除容器内的 `/etc/nginx/.htpasswd` (或进入容器执行 `rm /etc/nginx/.htpasswd`) 然后重启。
 
-### Q5: Web配置面板问题
+### Q6: Web 配置面板问题
 
-关于面板，我单独拆分出了一个[仓库](https://github.com/Asteroid77/pz-web-backend)。
+关于面板，我单独拆分出了一个[仓库](https://github.com/ifsherlock/pz-web-backend)。
 
 有什么问题可以去那边提。
 
-如果你科学上网工具质量不太好，经常触发`Github`的风控，想要更新新版的面板，可以直接从面板仓库那边的`Release`中下载build好的版本放到`data/web-backend`下面自行更名替换，也可以改了后自己编译自己替换。
+如果需要手动更新面板，可从面板仓库的 `Release` 下载与 `PZ_WEB_BACKEND_FILENAME` 一致的 Linux amd64 二进制，替换 `data/web-backend/pz-web-backend` 后重启 `webconfig`。面板模板和 favicon 已内嵌在二进制中，不需要额外挂载前端文件。
+
+### Q7: UID/GID 应该写在哪里？
+
+在 `.env` 设置 `PZ_UID` 和 `PZ_GID`，再执行 `docker compose build`。Compose 会把它们作为构建参数传给 Dockerfile；容器启动时还会修正挂载目录属主。不要把宿主机 UID/GID 写死在 Dockerfile 中。
 
 ## 📝 4. License
 
