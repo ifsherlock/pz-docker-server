@@ -16,17 +16,16 @@ smart_chown() {
         return
     fi
 
-    # 获取当前所有者
-    local current_owner=$(stat -c '%U' "$path")
-
-    # 如果所有者不匹配，则执行修复
-    if [ "$current_owner" != "$owner" ]; then
-        echo "权限不匹配: $path (当前: $current_owner, 期望: $owner)。正在修复..."
-        # -R 是必须的，因为 Docker 可能创建了多层 root 权限的目录
+    # 只要树中有 root/其他用户创建的文件，就统一修复属主。
+    # 仅检查目录本身会漏掉 bind mount 内部残留的 root 文件。
+    if find "$path" \( ! -user "$owner" -o ! -group "$owner" \) -print -quit | grep -q .; then
+        echo "权限不匹配: $path，正在修复为 $owner:$owner..."
         chown -R "$owner:$owner" "$path"
     else
         echo "权限正确: $path (所有者: $owner)"
     fi
+    # 保证目录可进入、文件可读写，但不把所有文件粗暴改成可执行。
+    chmod -R u+rwX "$path" 2>/dev/null || true
 }
 
 # steam目录权限处理

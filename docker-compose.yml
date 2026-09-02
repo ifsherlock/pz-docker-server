@@ -20,7 +20,11 @@ services:
         # 传递 .env 里的代理和源设置
         http_proxy: ${PROXY_URL}
         https_proxy: ${PROXY_URL}
+        GITHUB_PROXY_URL: ${GITHUB_PROXY_URL}
         USE_CN_MIRROR: ${USE_CN_MIRROR}
+        # 宿主机 bind mount 的属主；默认与 NAS 当前 steam 用户一致
+        STEAM_UID: ${PZ_UID:-1000}
+        STEAM_GID: ${PZ_GID:-1000}
 
     # --- 端口映射 ---
     ports:
@@ -48,6 +52,9 @@ services:
       - SSL_KEY=${SSL_KEY}
       # 游戏配置
       - PZ_BRANCH=${PZ_BRANCH}
+      - PZ_MEMORY_LIMIT=${PZ_MEMORY_LIMIT:-3g}
+      - PZ_UID=${PZ_UID:-1000}
+      - PZ_GID=${PZ_GID:-1000}
       # PZ Web 面板账号配置
       - PZ_WEB_ACCOUNT=${PZ_WEB_ACCOUNT}
       - PZ_WEB_PASSWORD=${PZ_WEB_PASSWORD}
@@ -55,7 +62,6 @@ services:
       - PZ_SETTING_WEB_REPO=${PZ_SETTING_WEB_REPO}
       # 游戏更新相关
       - STEAMCMD_CN_MIRROR_ID=${STEAMCMD_CN_MIRROR_ID}
-      - PZ_BRANCH=${PZ_BRANCH}
       # FileBrowser 账号配置
       - FILEBROWSER_ADMIN_USERNAME=${FILEBROWSER_ADMIN_USERNAME}
       - FILEBROWSER_ADMIN_PASSWORD=${FILEBROWSER_ADMIN_PASSWORD}
@@ -89,27 +95,27 @@ services:
 
     # --- 重启策略 ---
     restart: unless-stopped
-  ddns-go:
+#  ddns-go:
     # --- DDNS-GO 服务 ---
     # 作用：自动更新域名解析，将域名指向家庭网络的动态公网IP。
-    container_name: ddns-go
+#    container_name: ddns-go
     # command: "-l :9876 -f 300" # 每 300 秒(5分钟)检查一次
-    command: -f ${FREQUENCY_DDNS_GO}
-    image: ghcr.io/jeessy2/ddns-go:latest
+#    command: -f ${FREQUENCY_DDNS_GO}
+#    image: ghcr.io/jeessy2/ddns-go:latest
     
     # --- 重启策略 ---
-    restart: unless-stopped
+#    restart: unless-stopped
     
     # --- 端口映射 ---
     # 暴露 ddns-go 的 Web UI 配置界面
-    ports:
-      - "${PORT_DDNS_GO}:9876"
+#    ports:
+#      - "${PORT_DDNS_GO}:9876"
 
     # --- 卷挂载 ---
     # 将容器内的配置目录持久化到宿主机，防止容器重启后配置丢失
-    volumes:
-      - ./data/ddns-go:/root
+#    volumes:
+#      - ./data/ddns-go:/root
 
     # --- 环境变量 ---
-    environment:
-      - TZ=Asia/Shanghai
+#    environment:
+#      - TZ=Asia/Shanghai

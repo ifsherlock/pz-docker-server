@@ -7,9 +7,12 @@ FROM ubuntu:jammy
 # --- 构建参数 ---
 # 是否使用功能国内源（默认为 true）
 ARG USE_CN_MIRROR=true
+ARG STEAM_UID=1000
+ARG STEAM_GID=1000
 # 代理，构建时通过 --build-arg 传入
 ARG http_proxy
 ARG https_proxy
+ARG GITHUB_PROXY_URL
 
 #  设置环境变量，防止 apt 安装时弹出交互界面
 ENV DEBIAN_FRONTEND=noninteractive
@@ -194,8 +197,15 @@ RUN <<EOF
 set -e
 
 # --- 创建 steam 用户 ---
-echo "Creating user 'steam'..."
-useradd -m -d /home/steam -s /bin/bash steam
+echo "Creating user 'steam' with UID=${STEAM_UID}, GID=${STEAM_GID}..."
+case "${STEAM_UID}" in ''|*[!0-9]*) echo "Invalid STEAM_UID" >&2; exit 1;; esac
+case "${STEAM_GID}" in ''|*[!0-9]*) echo "Invalid STEAM_GID" >&2; exit 1;; esac
+if [ "${STEAM_UID}" -eq 0 ] || [ "${STEAM_GID}" -eq 0 ]; then
+    echo "STEAM_UID/STEAM_GID must not be 0" >&2
+    exit 1
+fi
+groupadd --gid "${STEAM_GID}" steam
+useradd --uid "${STEAM_UID}" --gid "${STEAM_GID}" -m -d /home/steam -s /bin/bash steam
 
 # --- 创建所有必需的目录 ---
 # 创建steamcmd目录
@@ -272,11 +282,14 @@ USER root
 # 复制 Supervisord 配置
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 # 复制游戏启动脚本
+# 注意：源文件(宿主机)权限可能是 000，COPY 会原样带入，
+# 若仅用 chmod +x 会得到 ---x--x--x，steam 用户无法读取 → Permission denied。
+# 这里显式 chmod 755，确保镜像内始终完整可读可执行。
 COPY start-pz.sh /home/steam/start-pz.sh
-RUN chmod +x /home/steam/start-pz.sh && chown steam:steam /home/steam/start-pz.sh
+RUN chmod 755 /home/steam/start-pz.sh && chown steam:steam /home/steam/start-pz.sh
 # 复制入口脚本
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN chmod 755 /entrypoint.sh
 
 
 RUN <<EOF
@@ -290,7 +303,8 @@ LATEST_URL="https://github.com/${PZ_SETTING_WEB_REPO}/releases/latest/download/$
 # --- 检查并应用代理 ---
 if [ -n "$GITHUB_PROXY_URL" ]; then
     echo "--> Using GitHub proxy: $GITHUB_PROXY_URL"
-    DOWNLOAD_URL="${GITHUB_PROXY_URL}${LATEST_URL}"
+    # 代理地址可能带或不带尾斜杠，统一规范后再拼接完整 GitHub URL。
+    DOWNLOAD_URL="${GITHUB_PROXY_URL%/}/${LATEST_URL}"
 else
     DOWNLOAD_URL="${LATEST_URL}"
 fi

@@ -8,10 +8,21 @@ echo "--- Supervisor 正在启动僵毁服务端 ---"
 # 确认分支
 # 如果 PZ_BRANCH 为空，默认为 public
 BRANCH=${PZ_BRANCH:-public}
+# 面板可持久化选择 Steam 分支；优先级高于容器环境变量，避免重建后丢失选择。
+PANEL_SETTINGS_FILE="/opt/pz-web-backend/panel_settings.json"
+if [ -f "$PANEL_SETTINGS_FILE" ] && command -v python3 >/dev/null 2>&1; then
+    PANEL_BRANCH="$(python3 -c "import json;print(json.load(open('$PANEL_SETTINGS_FILE')).get('game_branch') or '')" 2>/dev/null || true)"
+    if [ -n "$PANEL_BRANCH" ] && [[ "$PANEL_BRANCH" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$ ]]; then
+        BRANCH="$PANEL_BRANCH"
+    fi
+fi
 BETA_ARGS=""
 
 if [ "$BRANCH" = "public" ] || [ "$BRANCH" = "latest" ]; then
     echo "--- [Game] 目标分支: 稳定版 (public) ---"
+    # SteamCMD 会在持久化 Steam 目录中记住上一次选择的 beta。
+    # 即使这里省略 -beta，也可能继续沿用旧的 42.19 分支，因此显式切回 public。
+    BETA_ARGS="-beta public"
 else
     echo "--- [Game] 目标分支: 测试版 ($BRANCH) ---"
     BETA_ARGS="-beta $BRANCH"
@@ -41,6 +52,34 @@ cd $PZ_INSTALL_DIR
 if [ ! -f "./start-server.sh" ]; then
     echo "错误: 找不到 start-server.sh，可能是游戏下载完全失败。"
     exit 1
+fi
+
+# --- 限制 JVM 内存 ---
+# 游戏默认 -Xmx8g，对少人/本地 NAS 服务端过高。
+# 注意：每次 steamcmd validate 会把这个 json 还原成默认 8g，
+# 所以必须在这里(validate 之后、启动游戏之前)重新应用。
+# 内存值优先级：
+#   1. 面板设置文件 panel_settings.json 的 memory_limit (前端可改，无需重建镜像)
+#   2. 环境变量 PZ_MEMORY_LIMIT
+#   3. 默认 3g
+# Build 42 服务端不建议 < 2g。
+PZ_MEMORY_LIMIT="${PZ_MEMORY_LIMIT:-3g}"
+# 面板设置文件路径 (挂载卷 data/web-backend -> /opt/pz-web-backend)
+PANEL_SETTINGS_FILE="/opt/pz-web-backend/panel_settings.json"
+if [ -f "$PANEL_SETTINGS_FILE" ]; then
+    SETTINGS_MEM="$(python3 -c "import json;print(json.load(open('$PANEL_SETTINGS_FILE')).get('memory_limit') or '')" 2>/dev/null)"
+    if [ -n "$SETTINGS_MEM" ]; then
+        PZ_MEMORY_LIMIT="$SETTINGS_MEM"
+        echo "--- [Game] 从面板设置读取内存上限: -Xmx${PZ_MEMORY_LIMIT} ---"
+    fi
+fi
+if [[ ! "$PZ_MEMORY_LIMIT" =~ ^[1-9][0-9]*[mMgG]$ ]]; then
+    echo "--- [Game] 无效的 JVM 内存上限 '$PZ_MEMORY_LIMIT'，回退为 3g ---"
+    PZ_MEMORY_LIMIT="3g"
+fi
+if [ -f "./ProjectZomboid64.json" ]; then
+    sed -i "s/-Xmx[0-9]*[mMgG]/-Xmx${PZ_MEMORY_LIMIT}/" ./ProjectZomboid64.json
+    echo "--- [Game] JVM 内存上限已设为 -Xmx${PZ_MEMORY_LIMIT} ---"
 fi
 
 # 使用 exec 替换当前 shell 进程
