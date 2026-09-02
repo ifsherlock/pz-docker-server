@@ -53,8 +53,6 @@ services:
       # 游戏配置
       - PZ_BRANCH=${PZ_BRANCH}
       - PZ_MEMORY_LIMIT=${PZ_MEMORY_LIMIT:-3g}
-      - PZ_UID=${PZ_UID:-1000}
-      - PZ_GID=${PZ_GID:-1000}
       # PZ Web 面板账号配置
       - PZ_WEB_ACCOUNT=${PZ_WEB_ACCOUNT}
       - PZ_WEB_PASSWORD=${PZ_WEB_PASSWORD}
